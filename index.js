@@ -71,7 +71,7 @@ app.put("/users", async (req, res) => {
     const updateDocument = {
       $set: {
         first_name: formData.first_name,
-        dov_day: formData.dob_day,
+        dob_day: formData.dob_day,
         dob_month: formData.dob_month,
         dob_year: formData.dob_year,
         show_gender: formData.show_gender,
@@ -80,6 +80,7 @@ app.put("/users", async (req, res) => {
         url: formData.url,
         about: formData.about,
         matches: formData.matches,
+        friend_requests: formData.friend_requests,
       },
     };
     const insertedUser = await users.updateOne(query, updateDocument);
@@ -94,6 +95,90 @@ app.put("/users", async (req, res) => {
 });
 
 app.get("/users", async (req, res) => {
+  const client = new MongoClient(uri);
+  const userIds = JSON.parse(req.query.userIds);
+  // console.log(userIds);
+
+  try {
+    await client.connect();
+    const database = client.db("app-data");
+    const users = database.collection("users");
+
+    const pipeline = [
+      {
+        $match: {
+          user_id: {
+            $in: userIds,
+          },
+        },
+      },
+    ];
+    const foundUsers = await users.aggregate(pipeline).toArray();
+    // console.log(foundUsers);
+    res.send(foundUsers);
+  } finally {
+    await client.close();
+  }
+});
+
+app.put("/addmatch", async (req, res) => {
+  const client = new MongoClient(uri);
+  const { userId, friendId } = req.body;
+
+  try {
+    await client.connect();
+    const database = client.db("app-data");
+    const users = database.collection("users");
+    const queryUser = { user_id: userId };
+    const queryFriend = { user_id: friendId };
+    const updateDocumentUser = {
+      $addToSet: { matches: { user_id: friendId } },
+    };
+    const updateDocumentFriend = {
+      $addToSet: { matches: { user_id: userId } },
+    };
+    const updateDocumentRequest = {
+      $pull: { friend_requests: { user_id: friendId } },
+    };
+    const friendAddedToUser = await users.updateOne(
+      queryUser,
+      updateDocumentUser
+    );
+    const friendAddedToFriend = await users.updateOne(
+      queryFriend,
+      updateDocumentFriend
+    );
+    const removeFriendRequest = await users.updateOne(
+      queryUser,
+      updateDocumentRequest
+    );
+  } finally {
+    await client.close();
+  }
+});
+app.put("/removerequest", async (req, res) => {
+  const client = new MongoClient(uri);
+  const { userId, friendId } = req.body;
+
+  try {
+    await client.connect();
+    const database = client.db("app-data");
+    const users = database.collection("users");
+    const queryUser = { user_id: userId };
+
+    const updateDocumentRequest = {
+      $pull: { friend_requests: { user_id: friendId } },
+    };
+    const removeFriendRequest = await users.updateOne(
+      queryUser,
+      updateDocumentRequest
+    );
+  } finally {
+    await client.close();
+  }
+});
+
+app.get("/inviteusers", async (req, res) => {
   const client = new MongoClient(uri);
   const userIds = JSON.parse(req.query.userIds);
   // console.log(userIds);
@@ -176,7 +261,7 @@ app.get("/user", async (req, res) => {
   }
 });
 
-app.put("/addmatch", async (req, res) => {
+app.put("/addfriend", async (req, res) => {
   const client = new MongoClient(uri);
   const { userId, matchedUserId } = req.body;
 
@@ -185,9 +270,9 @@ app.put("/addmatch", async (req, res) => {
     const database = client.db("app-data");
     const users = database.collection("users");
 
-    const query = { user_id: userId };
+    const query = { user_id: matchedUserId };
     const updateDocument = {
-      $addToSet: { matches: { user_id: matchedUserId } },
+      $addToSet: { friend_requests: { user_id: userId } },
     };
     const user = await users.updateOne(query, updateDocument);
     res.send(user);
